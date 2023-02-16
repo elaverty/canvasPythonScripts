@@ -1,0 +1,108 @@
+import csv
+import requests
+import concurrent.futures
+import argparse
+from tqdm import tqdm
+
+'''
+This code allows the user to pass in the path to the CSV file, the Canvas domain, and the Canvas API token 
+from the command line. It also includes a --workers flag that allows the user to specify the number of worker 
+threads to use. The code reads in the CSV file, processes each unique observer ID in parallel, and updates their 
+notification preferences. The progress is monitored using the tqdm module.
+
+Last used 8/19/20
+'''
+
+
+def process_observer(observer_id, domain, token):
+    pref_id = get_prefs(observer_id, domain, token)
+
+    try:
+        update = update_prefs(observer_id, pref_id, domain, token)
+        return update
+    except Exception as e:
+        print(e)
+
+
+def get_prefs(observer_id, domain, token):
+    url = f"https://{domain}/api/v1/users/{observer_id}/communication_channels"
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.request("GET", url, headers=headers)
+
+    for channel in resp.json():
+        if channel["type"] == "email":
+            return channel["id"]
+
+
+def update_prefs(observer_id, channel_id, domain, token):
+    types = ["new_announcement"] # additional options commentted out 
+    '''
+        "due_date",
+        "course_content",
+        "grading_policies",
+        "grading",
+        "calendar",
+        "invitation",
+        "discussion",
+        "late_grading",
+        "submission_comment",
+        "summaries",
+        "registration",
+        "other",
+        "reminder",
+        "membership_update",
+        "discussionentry",
+        "all_submissions",
+        "conversation_message",
+        "added_to_conversation",
+        "alert",
+        "student_appointment_signups",
+        "appointment_cancelations",
+        "appointment_availability",
+        "appointment_signups",
+        "files",
+        "migration",
+        "announcement_created_by_you",
+        "conversation_created",
+        "recording_ready",
+        "blueprint",
+        "account_notification",
+        "content_link_error"
+    '''
+    frequency = "never" # 'immediately', 'daily', 'weekly', 'never'
+    headers = {"Authorization": f"Bearer {token}"}
+    responses = []
+
+    for msg_type in types:
+        url = f"https://{domain}/api/v1/users/self/communication_channels/{channel_id}/notification_preferences/{msg_type}?as_user_id={observer_id}&notification_preferences[frequency]={frequency}"
+        resp = requests.request("PUT", url, headers=headers)
+        responses.append(resp)
+
+    return responses
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Update Canvas user notification preferences as an admin.")
+    parser.add_argument("csv_file", type=str, help="The path to the CSV file with observer and student IDs.")
+    parser.add_argument("domain", type=str, help="The Canvas domain (e.g., canvas.instructure.com).")
+    parser.add_argument("token", type=str, help="The Canvas API token.")
+    parser.add_argument("--workers", type=int, default=3, help="The number of worker threads to use.")
+    args = parser.parse_args()
+
+    unique_observers = set()
+    with open(args.csv_file, 'r') as csv_file:
+        csv_reader = csv.reader(csv_file)
+        for row in csv_reader:
+            if csv_reader.search("student", row[4]):
+                unique_observers.add(int(row[0]))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
+        with tqdm(total=len(unique_observers)) as progress:
+            futures = []
+            for observer_id in unique_observers:
+                future = executor.submit(process_observer, observer_id, args.domain, args.token)
+                future.add_done_callback(lambda p: progress.update())
+                futures.append(future)
+
+if __name__ == "__main__":
+    main()
