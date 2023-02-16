@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+
+'''
+This script sets Canvas users for each student from a csv
+
+Last used 8/17/21
+'''
+
+
+import csv
+import requests
+
+# Set variables
+csv_file = 'observers.csv' # column headers must be observer_id,student_id
+domain = '' # canvas location
+token = '' # api key
+action = 'delete'  # add or delete
+
+# Set up header for requests
+header = {'Authorization': f'Bearer {token}'}
+
+# Determine REST action
+if action == 'add':
+    rest_action = requests.put
+elif action == 'delete':
+    rest_action = requests.delete
+else:
+    rest_action = requests.get
+
+# Open CSV file and loop through rows
+with open(csv_file, 'r') as csv_file:
+    csv_reader = csv.DictReader(csv_file)
+    for row in csv_reader:
+        base_url = f'https://{domain}/api/v1/users/{row["observer_id"]}/observees/{row["student_id"]}'
+        response = rest_action(base_url, headers=header)
